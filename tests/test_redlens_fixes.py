@@ -86,7 +86,14 @@ class TestPortRange(unittest.TestCase):  # red-lens N
             check_url("http://example.com:99999/x")
 
 
+@unittest.skipUnless(
+    _HERMES_OK, "loads tools.py which imports Hermes core (host machine covers these)"
+)
 class TestStrictConfirmTruthiness(unittest.TestCase):  # red-lens B/C
+    # cross-platform note: _truthy semantics certify on HOST installs (Windows) —
+    # bare machines (d0a1 python3, Termux) skip this class and the 2 skips are the
+    # expected signature (see README Test scope). The P0 fix itself is exercised
+    # at runtime wherever the plugin actually loads.
     def setUp(self):
         import types
 

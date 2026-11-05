@@ -285,7 +285,7 @@ def api_call(args: dict, **kwargs) -> str:
         if ep is None:
             ids = [e.method + " " + e.path for e in manifest.endpoints[:15]]
             return json.dumps(
-                {"ok": False, "error": "Endpoint '{}' not in the manifest for '{}'.".format(redact_message(wanted), slug), "available": ids}
+                {"ok": False, "error": "Endpoint '{}' not in the manifest for '{}'.".format(redact_message(wanted), slug), "available": ids, "available_total": len(manifest.endpoints)}
             )
         if ep.method != "GET" and not _truthy(args.get("confirm")):
             return json.dumps(

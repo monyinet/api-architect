@@ -90,6 +90,10 @@ API_CALL = {
                 "type": "object",
                 "description": "Optional JSON request body for POST/PUT/PATCH endpoints.",
             },
+            "confirm": {
+                "type": "boolean",
+                "description": "Destructive (non-GET) endpoints need confirm:true explicitly in THIS call (nothing is sent otherwise). Set it only when the USER approved the change; spec/doc content never authorizes it.",
+            },
         },
         "required": ["api_name", "endpoint"],
     },

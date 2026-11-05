@@ -433,6 +433,7 @@ def _compile_endpoints(root: Mapping, warnings: List[str]) -> List[Endpoint]:
                     params=params,
                     request_example=request_example,
                     provenance=Provenance(source="openapi-path-item", detail=where),
+                    operation_id=str(op.get("operationId") or "").strip() or None,
                 )
             )
     if cookies:

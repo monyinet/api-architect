@@ -44,13 +44,19 @@ class ExecutionError(Exception):
 
 
 def find_endpoint(manifest: Digest, endpoint: str) -> Optional[Endpoint]:
-    """Match by id, then by 'METHOD /path', then by a UNIQUE path match."""
+    """Match by id, then by exact operationId (spec address), then by
+    'METHOD /path', then by a UNIQUE path match."""
     want = endpoint.strip().lower()
     if not want:
         return None
     for e in manifest.endpoints:
         if e.id.lower() == want:
             return e
+    op_hits = [e for e in manifest.endpoints if (e.operation_id or "").lower() == want]
+    if len(op_hits) == 1:
+        return op_hits[0]
+    if len(op_hits) > 1:
+        return None  # ambiguous operationId → refuse and offer the list (same contract as paths)
     parts = want.split(None, 1)
     if len(parts) == 2 and parts[0] in [m.lower() for m in _METHODS]:
         for e in manifest.endpoints:

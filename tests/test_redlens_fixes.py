@@ -332,5 +332,76 @@ def types_like_load():
     return mods
 
 
+
+
+class TestOperationIdAddressing(unittest.TestCase):
+    """Live-session finding (2026-11-06): the spec's operationId never reached the
+    manifest, so a model addressing 'findPetsByStatus' (the spec's own address) was
+    refused although the endpoint existed. Now every parser stores it and
+    find_endpoint matches it exactly; ambiguity refuses with the endpoint list."""
+
+    def _digest(self):
+        import parse_spec as parse_spec_mod
+
+        data = json.loads(_PETSTORE)
+        digest, _warn = parse_spec_mod.digest_from_openapi3(
+            data, "https://petstore3.example/api/v3/openapi.json", "petstore"
+        )
+        return digest
+
+    def test_openapi3_stores_operation_id(self):
+        digest = self._digest()
+        ids = {e.operation_id for e in digest.endpoints if e.operation_id}
+        self.assertTrue(ids, "no endpoint carried an operationId")
+        self.assertIn("findPetsByStatus", ids)
+
+    def test_find_endpoint_by_spec_operation_id(self):
+        ep = executor_mod.find_endpoint(self._digest(), "findPetsByStatus")
+        self.assertIsNotNone(ep)
+        self.assertEqual(ep.operation_id, "findPetsByStatus")
+
+    def test_find_endpoint_missing_operation_id_refused_cleanly(self):
+        digest = self._digest()
+        self.assertIsNone(executor_mod.find_endpoint(digest, "unrealisticOperationName"))
+        # and case-insensitive EXACT match does not fuzz into a path (contract intact)
+        self.assertIsNone(executor_mod.find_endpoint(digest, "findpetsbystatusX"))
+
+    def test_ambiguous_operation_id_refused(self):
+        manifest = Digest(
+            api_name="dup",
+            source_url="https://x.example",
+            base_url="https://x.example",
+            endpoints=[
+                Endpoint(id="a", method="GET", path="/one", provenance=Provenance(source="s", detail="d"), operation_id="list-things"),
+                Endpoint(id="b", method="GET", path="/two", provenance=Provenance(source="s", detail="d"), operation_id="list-things"),
+            ],
+        )
+        self.assertIsNone(executor_mod.find_endpoint(manifest, "list-things"))
+
+    def test_manifest_roundtrip_keeps_operation_id(self):
+        digest = self._digest()
+        fresh = Digest.from_json(digest.to_json(state="draft"))
+        self.assertEqual(fresh.endpoints[0].operation_id, digest.endpoints[0].operation_id)
+
+    def test_old_manifest_without_operation_id_still_loads(self):
+        digest = self._digest()
+        payload = json.loads(digest.to_json(state="draft"))
+        for e in payload["endpoints"]:
+            e.pop("operation_id", None)
+        fresh = Digest.from_json(json.dumps(payload))
+        self.assertTrue(all(e.operation_id is None for e in fresh.endpoints))
+        self.assertIsNotNone(executor_mod.find_endpoint(fresh, fresh.endpoints[0].id))
+
+    def test_postman_request_name_is_the_operation_id(self):
+        import parse_postman as parse_postman_mod
+
+        data = json.loads((REPO / "tests" / "fixtures" / "postman_collection.json").read_text(encoding="utf-8"))
+        digest, _warn = parse_postman_mod.digest_from_postman(data, "https://example.example/col.json", "col")
+        named = [e for e in digest.endpoints if e.operation_id]
+        self.assertTrue(named, "no postman request carried its item name as operation_id")
+        first = named[0].operation_id
+        self.assertIsNotNone(executor_mod.find_endpoint(digest, first))
+
+
 if __name__ == "__main__":
     unittest.main()

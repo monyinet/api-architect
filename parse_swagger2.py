@@ -348,6 +348,7 @@ def _digest_from_spec(obj, source_url: str, api_name: str):
                     params=params,
                     request_example=None,  # v0: swagger2 inline body examples not taken
                     provenance=Provenance(source="swagger2-path-item", detail=detail[:120]),
+                    operation_id=(_text(op.get("operationId")) or None),
                 )
             )
 

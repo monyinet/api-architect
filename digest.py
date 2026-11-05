@@ -60,6 +60,7 @@ class Endpoint:
     params: List[Param] = field(default_factory=list)
     request_example: Optional[Dict[str, Any]] = None
     provenance: Optional[Provenance] = None
+    operation_id: Optional[str] = None  # spec's operationId / postman request name (exact-match address)
 
     def valid(self) -> bool:
         if self.provenance is None or not self.provenance.valid():
@@ -128,6 +129,7 @@ class Digest:
                     params=[Param(**p) for p in e.get("params", [])],
                     request_example=e.get("request_example"),
                     provenance=Provenance(source=prov.get("source", ""), detail=prov.get("detail", "")) if prov else None,
+                    operation_id=e.get("operation_id"),
                 )
             )
         auth = raw.get("auth", {}) or {}

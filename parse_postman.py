@@ -509,6 +509,7 @@ def _digest_from_collection(obj, source_url: str, api_name: str, marker: str):
                 params=params,
                 request_example=example,
                 provenance=Provenance(source="postman-request", detail=detail),
+                operation_id=(name or None),
             )
         )
 

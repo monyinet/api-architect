@@ -99,9 +99,8 @@ def architect_commit(args: dict, **kwargs) -> str:
 
     Validation runs BEFORE the rename: a draft that no longer parses stays a
     draft with an actionable message."""
-    redact_message = _sib("redactor").redact_message
-
     try:
+        redact_message = _sib("redactor").redact_message
         slug = digest_mod.slugify(str(args.get("api_name") or ""))
         if slug in ("", "api"):
             return json.dumps(
@@ -163,8 +162,13 @@ def architect_commit(args: dict, **kwargs) -> str:
 def architect_learn(args: dict, **kwargs) -> str:
     """Deterministic ingestion: probe with the guard → detect → parse → optional
     llm polish → DRAFT manifest persisted with provenance. Nothing hallucinated."""
-    redact_message = _sib("redactor").redact_message
-    strip_secret_values = _sib("secrets_bridge").strip_secret_values
+    try:  # a missing sibling degrades to JSON: the handler contract is "never raise"
+        redact_message = _sib("redactor").redact_message
+        strip_secret_values = _sib("secrets_bridge").strip_secret_values
+    except Exception as exc:
+        return json.dumps(
+            {"ok": False, "error": "architect_learn failed: plugin modules unavailable: {}".format(str(exc)[:200])}
+        )
 
     url = str(args.get("url") or "").strip()
     api_name = str(args.get("api_name") or "").strip()
@@ -234,8 +238,13 @@ def api_call(args: dict, **kwargs) -> str:
     """Schema-checked execution over a COMMITTED manifest. Non-GET endpoints are
     destructive: they need confirm=true in the SAME session (unattended runs
     fail clean). Validation happens locally against the manifest."""
-    executor_mod = _sib("executor")
-    redact_message = _sib("redactor").redact_message
+    try:  # a missing sibling degrades to JSON: the handler contract is "never raise"
+        executor_mod = _sib("executor")
+        redact_message = _sib("redactor").redact_message
+    except Exception as exc:
+        return json.dumps(
+            {"ok": False, "error": "api_call failed: plugin modules unavailable: {}".format(str(exc)[:200])}
+        )
 
     slug = digest_mod.slugify(str(args.get("api_name") or ""))
     if slug in ("", "api"):

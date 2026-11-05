@@ -80,7 +80,7 @@ API_CALL = {
             },
             "endpoint": {
                 "type": "string",
-                "description": "Endpoint id or method+path from the manifest (e.g. 'get-current-weather' or '/weather?').",
+                "description": "Endpoint from the manifest: its id, the spec's operationId (exact), or 'METHOD path' (e.g. 'get-current-weather', 'findPetsByStatus', 'GET /pet/{petId}').",
             },
             "params": {
                 "type": "object",

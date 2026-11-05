@@ -17,12 +17,12 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
-from digest import Auth, Digest, Endpoint, Param, Provenance, slugify
-
-try:  # top-level module (tests, learn.py) or plugin-package import — same digest module
-    from . import digest as _digest  # noqa: F401
-except ImportError:  # pragma: no cover - exercised in plugin context
-    _digest = None
+try:  # importable both as a plugin package submodule and as a root-level module
+    from . import digest as _digest
+    from .digest import Auth, Digest, Endpoint, Param, Provenance, slugify
+except ImportError:  # pragma: no cover - test/standalone import path
+    import digest as _digest
+    from digest import Auth, Digest, Endpoint, Param, Provenance, slugify
 
 _METHODS_LC = ("get", "post", "put", "patch", "delete", "head", "options")
 _REF_RE = re.compile(r"^#+/(.+)$")

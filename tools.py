@@ -7,6 +7,7 @@ returns a JSON string, errors included. Secrets never appear in any output.
 """
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -16,6 +17,21 @@ from . import digest as digest_mod
 
 PLUGIN_ID = "api-architect"
 _ctx = None  # set at register(); gates config (request_timeout_s/allow_private_hosts) and ctx.llm
+
+
+def _sib(stem):
+    """Import a sibling module in BOTH load modes.
+
+    Flat first: the repo's handler tests put this directory on sys.path and patch the flat
+    modules by name, so rebinding them keeps their mocks honest (tests/test_handlers.py).
+    Package-relative otherwise: Hermes loads a directory plugin as hermes_plugins.<slug> with
+    the plugin directory NOT on sys.path (hermes_cli/plugins_loader.py::_load_directory_module),
+    where a bare sibling import raises ModuleNotFoundError.
+    """
+    try:
+        return importlib.import_module(stem)
+    except ImportError:
+        return importlib.import_module("." + stem, __package__)
 
 
 def _config(key: str, default):
@@ -83,7 +99,7 @@ def architect_commit(args: dict, **kwargs) -> str:
 
     Validation runs BEFORE the rename: a draft that no longer parses stays a
     draft with an actionable message."""
-    from redactor import redact_message
+    redact_message = _sib("redactor").redact_message
 
     try:
         slug = digest_mod.slugify(str(args.get("api_name") or ""))
@@ -147,23 +163,22 @@ def architect_commit(args: dict, **kwargs) -> str:
 def architect_learn(args: dict, **kwargs) -> str:
     """Deterministic ingestion: probe with the guard → detect → parse → optional
     llm polish → DRAFT manifest persisted with provenance. Nothing hallucinated."""
-    from redactor import redact_message
-    from secrets_bridge import strip_secret_values
+    redact_message = _sib("redactor").redact_message
+    strip_secret_values = _sib("secrets_bridge").strip_secret_values
 
     url = str(args.get("url") or "").strip()
     api_name = str(args.get("api_name") or "").strip()
     if not url.lower().startswith(("http://", "https://")):
         return json.dumps({"ok": False, "error": "Need a http(s) spec or docs URL."})
-    from redactor import redact_url
-    clean_url = redact_url(url)  # red-lens D: a credential IN the pasted URL never reaches disk
+    clean_url = _sib("redactor").redact_url(url)  # red-lens D: a credential IN the pasted URL never reaches disk
     if clean_url != url:
         result_note = "source_url stored redacted (credential-shaped query parameters)"
     else:
         result_note = ""
     try:
-        from learn import learn
+        learn_mod = _sib("learn")
 
-        result = learn(
+        result = learn_mod.learn(
             url,
             api_name,
             timeout_s=int(_config("request_timeout_s", 15) or 15),
@@ -219,8 +234,8 @@ def api_call(args: dict, **kwargs) -> str:
     """Schema-checked execution over a COMMITTED manifest. Non-GET endpoints are
     destructive: they need confirm=true in the SAME session (unattended runs
     fail clean). Validation happens locally against the manifest."""
-    from executor import ExecutionError, execute, find_endpoint
-    from redactor import redact_message
+    executor_mod = _sib("executor")
+    redact_message = _sib("redactor").redact_message
 
     slug = digest_mod.slugify(str(args.get("api_name") or ""))
     if slug in ("", "api"):
@@ -237,7 +252,7 @@ def api_call(args: dict, **kwargs) -> str:
         if not manifest.valid():
             return json.dumps({"ok": False, "error": "The manifest for '{}' is invalid — relearn the API.".format(slug)})
         wanted = str(args.get("endpoint") or "")
-        ep = find_endpoint(manifest, wanted)
+        ep = executor_mod.find_endpoint(manifest, wanted)
         if ep is None:
             ids = [e.method + " " + e.path for e in manifest.endpoints[:15]]
             return json.dumps(
@@ -257,7 +272,7 @@ def api_call(args: dict, **kwargs) -> str:
         values = args.get("params") or {}
         body = args.get("raw_query_body")
         try:
-            result = execute(
+            result = executor_mod.execute(
                 manifest,
                 ep,
                 values,
@@ -266,7 +281,7 @@ def api_call(args: dict, **kwargs) -> str:
                 user_agent=str(_config("user_agent", "") or ""),
                 allow_private=_truthy(_config("allow_private_hosts", False)),
             )
-        except ExecutionError as exc:
+        except executor_mod.ExecutionError as exc:
             return json.dumps({"ok": False, "error": redact_message(str(exc))}, ensure_ascii=False)
         result["endpoint_id"] = ep.id
         return json.dumps(result, ensure_ascii=False)

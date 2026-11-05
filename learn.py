@@ -16,9 +16,29 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from typing import Optional
 
-from digest import Digest, slugify
-from netguard import GuardError, check_url, guarded_fetch
-from redactor import redact_message
+# Sibling modules resolve in BOTH load modes: flat when this directory is on sys.path (the repo's
+# tests and E2E driver), package-relative when Hermes loads the plugin as hermes_plugins.<slug>
+# with the plugin dir NOT on sys.path (hermes_cli/plugins_loader.py::_load_directory_module).
+try:
+    from .digest import Digest, slugify
+    from .netguard import GuardError, check_url, guarded_fetch
+    from .redactor import redact_message
+except ImportError:  # pragma: no cover - test/standalone import path
+    from digest import Digest, slugify
+    from netguard import GuardError, check_url, guarded_fetch
+    from redactor import redact_message
+
+
+def _parser(stem):
+    """Import a sibling parser module in both load modes (see the import block)."""
+    import importlib
+
+    if not __package__:
+        return importlib.import_module(stem)
+    try:
+        return importlib.import_module(stem)
+    except ImportError:
+        return importlib.import_module("." + stem, __package__)
 
 SPEC_SUFFIX_CANDIDATES = (
     "openapi.json",
@@ -78,28 +98,26 @@ def _detect_and_parse(obj, source_url: str, api_name: str):
     """(digest|None, warnings, mode) — imports land lazily so all lanes can own their files."""
     mode = None
     try:
-        from parse_spec import detect_spec
+        parse_spec = _parser("parse_spec")
 
-        mode = detect_spec(obj)
+        mode = parse_spec.detect_spec(obj)
     except ImportError:
         mode = None
     if mode == "openapi3":
-        from parse_spec import digest_from_openapi3
-
-        return digest_from_openapi3(obj, source_url, api_name) + ("openapi3",)
+        return parse_spec.digest_from_openapi3(obj, source_url, api_name) + ("openapi3",)
     if mode is None:
         try:
-            from parse_swagger2 import detect_swagger2, digest_from_swagger2
+            parse_swagger2 = _parser("parse_swagger2")
         except ImportError:
             return None, ["no parser could be imported"], None
-        if detect_swagger2(obj):
-            return digest_from_swagger2(obj, source_url, api_name) + ("swagger2",)
+        if parse_swagger2.detect_swagger2(obj):
+            return parse_swagger2.digest_from_swagger2(obj, source_url, api_name) + ("swagger2",)
         try:
-            from parse_postman import detect_postman, digest_from_postman
+            parse_postman = _parser("parse_postman")
         except ImportError:
             return None, ["no parser could be imported"], None
-        if detect_postman(obj):
-            return digest_from_postman(obj, source_url, api_name) + ("postman",)
+        if parse_postman.detect_postman(obj):
+            return parse_postman.digest_from_postman(obj, source_url, api_name) + ("postman",)
     return None, [], mode
 
 

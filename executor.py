@@ -13,10 +13,16 @@ import re
 import urllib.parse
 from typing import Optional
 
-from digest import Digest, Endpoint
-from netguard import GuardError, guarded_fetch
-from redactor import redact_message, sanitize_http_error
-from secrets_bridge import resolve_secret
+try:  # importable both as a plugin package submodule and as a root-level module
+    from .digest import Digest, Endpoint
+    from .netguard import GuardError, guarded_fetch
+    from .redactor import redact_message, sanitize_http_error
+    from .secrets_bridge import resolve_secret
+except ImportError:  # pragma: no cover - test/standalone import path
+    from digest import Digest, Endpoint
+    from netguard import GuardError, guarded_fetch
+    from redactor import redact_message, sanitize_http_error
+    from secrets_bridge import resolve_secret
 
 _METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 _PLACEHOLDER_RE = re.compile(r"\{([^/{}]+)\}")

@@ -14,10 +14,10 @@ Status: **work-in-progress for the Hermes Agent Plugin Hackathon (submission due
 
 | Tool | What it does | State |
 |---|---|---|
-| `architect_learn` | Fetch a spec URL (OpenAPI 3 JSON / Swagger 2 / Postman v2.1), compile endpoints+params with per-endpoint provenance into a manifest | 🔨 days 2-3 |
+| `architect_learn` | Fetch a spec URL (OpenAPI 3 JSON / Swagger 2 / Postman v2.1), compile endpoints+params with per-endpoint provenance into a manifest | ✅ working |
 | `architect_commit` | Draft → active (human-visible review: base_url, auth binding, provenance) | ✅ working |
 | `architect_list` | Learned APIs, persistent across sessions | ✅ working |
-| `api_call` | Schema-checked execution; invalid params fail locally, never as server 400s | 🔨 day 4 |
+| `api_call` | Schema-checked execution; invalid params fail locally, never as server 400s | ✅ working |
 
 ## Design commitments (disclosure — catalog rule 13)
 
@@ -53,7 +53,7 @@ planning vault (not published here).
 
 ## Test scope (honest)
 
-- `python -m unittest discover tests` — **208 module tests** (digest, parsers,
+- `python -m unittest discover tests` — **234 tests**: 208 module tests (digest, parsers,
   netguard, redactor, secrets_bridge) **+ the red-lens regression suite**
   (`tests/test_redlens_fixes.py`, from an external adversarial audit of this
   code) + the handler-stack tests: pure stdlib, no network except loopback

@@ -460,6 +460,36 @@ class TestSecretValuesInUrl(unittest.TestCase):  # F1: pass (a) gets REAL values
         self.assertEqual(active_after.get("state"), "active")
 
 
+    @unittest.skipUnless(_HERMES_OK, "handler tests need Hermes core importable")
+    def test_swagger2_spec_routes_through_real_learn(self):
+        # live-learn finding: detect_spec said "swagger2" but the dispatcher dropped
+        # it (only "openapi3" was routed) — a Swagger 2 URL returned "no spec found"
+        import tempfile
+
+        home = tempfile.mkdtemp(prefix="architect-swagger2-home-")
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        os.environ["HERMES_HOME"] = home
+        tools = redlens_types_like_load()["tools"]
+        import learn as learn_mod
+
+        v2 = (REPO / "tests" / "fixtures" / "petstore_v2.json").read_text(encoding="utf-8")
+        canned = {
+            "status": 200,
+            "headers": {"content-type": "application/json"},
+            "body": v2.encode("utf-8"),
+            "url": "https://petstore2.example.com/v2/swagger.json",
+        }
+        with mock.patch.object(learn_mod, "guarded_fetch", return_value=canned):
+            r = json.loads(tools.architect_learn({"url": canned["url"], "api_name": "petstore2"}))
+        self.assertTrue(r.get("ok"), r)
+        self.assertEqual(r.get("mode"), "swagger2")
+        self.assertTrue(r.get("endpoints_total"))
+        d, warnings, mode = learn_mod._detect_and_parse(json.loads(v2), canned["url"], "petstore2")
+        self.assertEqual(mode, "swagger2")
+        self.assertTrue(d.valid())
+        self.assertTrue(d.endpoints)
+
+
 @unittest.skipUnless(_HERMES_OK, "handler tests need Hermes core importable")
 class TestConfirmStringFalseNeverSends(unittest.TestCase):  # F3: gate on the REAL handler paths
     def _learn_and_commit(self, tools):

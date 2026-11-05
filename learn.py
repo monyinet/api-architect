@@ -105,6 +105,15 @@ def _detect_and_parse(obj, source_url: str, api_name: str):
         mode = None
     if mode == "openapi3":
         return parse_spec.digest_from_openapi3(obj, source_url, api_name) + ("openapi3",)
+    if mode == "swagger2":
+        # live-learn finding (2026-11-06): detect_spec classifies swagger2/postman,
+        # but this dispatcher only routed "openapi3" or the None-fallback chain —
+        # a Swagger 2 spec by URL returned "no machine-readable spec found".
+        parse_swagger2 = _parser("parse_swagger2")
+        return parse_swagger2.digest_from_swagger2(obj, source_url, api_name) + ("swagger2",)
+    if mode == "postman":
+        parse_postman = _parser("parse_postman")
+        return parse_postman.digest_from_postman(obj, source_url, api_name) + ("postman",)
     if mode is None:
         try:
             parse_swagger2 = _parser("parse_swagger2")

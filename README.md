@@ -51,6 +51,18 @@ Run tests: `python -m unittest discover tests` (stdlib).
 Day-by-day build plan and the Red/Blue decision behind this design live in a private
 planning vault (not published here).
 
+## Test scope (honest)
+
+- `python -m unittest discover tests` — **208 module tests** (digest, parsers,
+  netguard, redactor, secrets_bridge): pure stdlib, no network except loopback
+  servers inside netguard's own tests.
+- `tests/test_handlers.py` runs the FULL handler stack (learn → draft refusal →
+  commit → list → api_call) with a mocked network adapter, and **skips cleanly
+  where Hermes core is not importable** (bare machines): the four tool handlers
+  sit on `plugin_data_dir`/`ctx`, which exist only inside a Hermes host.
+- Covered so far on Python 3.12 (Ubuntu) and 3.14 (Windows + Android/Termux).
+  The 3.11 floor (core's minimum) is untested at this time — declared.
+
 ## License
 
 MIT — © 2026 Jose Juan Moñino Coll (monyinet)

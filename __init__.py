@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 
 def register(ctx):
     """Wire schemas to handlers and bundle the usage skill."""
+    from . import tools as tools_mod
+
+    tools_mod._ctx = ctx  # module singleton: config + ctx.llm for the handlers
+
     skills_dir = Path(__file__).parent / "skills"
     if skills_dir.is_dir():
         for child in sorted(skills_dir.iterdir()):

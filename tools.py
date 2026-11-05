@@ -1,9 +1,9 @@
 """Tool handlers — the code that runs when the LLM calls each tool.
 
-Day-1 state (2026-11-05): architect_list and architect_commit WORK against
-the manifests store; architect_learn and api_call are honest stubs wired to the
-final schemas — their pipelines land days 2-4. Handlers NEVER raise; every path
-returns a JSON string, errors included.
+Night build (2026-11-05): all four tools are REAL. architect_learn runs the
+deterministic ingestion pipeline (guard → detect → parse → llm-polish → draft);
+api_call is the schema-checked interpreter. Handlers NEVER raise; every path
+returns a JSON string, errors included. Secrets never appear in any output.
 """
 from __future__ import annotations
 
@@ -15,31 +15,24 @@ from plugins.plugin_storage import plugin_data_dir
 from . import digest as digest_mod
 
 PLUGIN_ID = "api-architect"
+_ctx = None  # set at register(); gates config (request_timeout_s/allow_private_hosts) and ctx.llm
 
-_ERR_NOT_IMPL_LEARN = (
-    "not_implemented_yet: spec ingestion (guard + parser + ctx.llm) lands in days 2-3 "
-    "of the hackathon build. Use architect_list for learned APIs, or paste a raw "
-    "OpenAPI/Postman spec URL — the honest answer today is that learning is pending."
-)
-_ERR_NOT_IMPL_CALL = (
-    "not_implemented_yet: the schema-checked executor lands on day 4 of the "
-    "hackathon build. Committed manifests are stored and listed but not yet callable."
-)
+
+def _config(key: str, default):
+    if _ctx is None:
+        return default
+    try:
+        return _ctx.get_config(key, default=default)
+    except Exception:
+        return default
+
+
+def _llm():
+    return getattr(_ctx, "llm", None) if _ctx is not None else None
 
 
 def _manifests_dir() -> Path:
     return plugin_data_dir(PLUGIN_ID) / "manifests"
-
-
-def _load_manifest(slug: str) -> Path:
-    d = _manifests_dir()
-    active = d / "{}.json".format(slug)
-    if active.exists():
-        return active
-    draft = d / "{}.draft.json".format(slug)
-    if draft.exists():
-        return draft
-    return active  # nonexistent — callers handle
 
 
 def architect_list(args: dict, **kwargs) -> str:
@@ -75,6 +68,8 @@ def architect_commit(args: dict, **kwargs) -> str:
 
     Validation runs BEFORE the rename: a draft that no longer parses stays a
     draft with an actionable message."""
+    from redactor import redact_message
+
     try:
         slug = digest_mod.slugify(str(args.get("api_name") or ""))
         if slug in ("", "api"):
@@ -102,7 +97,7 @@ def architect_commit(args: dict, **kwargs) -> str:
             else:
                 parsed.auth.secret_binding = binding
         if problems:
-            return json.dumps({"ok": False, "error": "commit refused", "problems": problems, "slug": slug})
+            return json.dumps({"ok": False, "error": redact_message("commit refused: " + "; ".join(problems))})
         if parsed.auth.secret_binding and parsed.auth.type in ("none",):
             parsed.warnings.append("secret slot bound while auth.type is 'none' — the binding is stored but unused.")
         payload = json.loads(draft.read_text(encoding="utf-8"))
@@ -127,7 +122,7 @@ def architect_commit(args: dict, **kwargs) -> str:
                 "state": "active",
                 "endpoints": len(parsed.endpoints),
                 "auth": {"type": parsed.auth.type, "secret_binding": parsed.auth.secret_binding},
-                "note": "Destructive (non-GET) endpoints always require interactive approval.",
+                "note": "Destructive (non-GET) endpoints require confirm; unattended runs fail clean.",
             }
         )
     except Exception as exc:
@@ -135,14 +130,117 @@ def architect_commit(args: dict, **kwargs) -> str:
 
 
 def architect_learn(args: dict, **kwargs) -> str:
+    """Deterministic ingestion: probe with the guard → detect → parse → optional
+    llm polish → DRAFT manifest persisted with provenance. Nothing hallucinated."""
+    from redactor import redact_message
+    from secrets_bridge import strip_secret_values
+
     url = str(args.get("url") or "").strip()
+    api_name = str(args.get("api_name") or "").strip()
     if not url.lower().startswith(("http://", "https://")):
         return json.dumps({"ok": False, "error": "Need a http(s) spec or docs URL."})
-    return json.dumps({"ok": False, "error": _ERR_NOT_IMPL_LEARN, "url_accepted": True})
+    try:
+        from learn import learn
+
+        result = learn(
+            url,
+            api_name,
+            timeout_s=int(_config("request_timeout_s", 15) or 15),
+            user_agent=str(_config("user_agent", "") or ""),
+            allow_private=bool(_config("allow_private_hosts", False)),
+            llm=_llm(),
+        )
+    except Exception as exc:
+        return json.dumps({"ok": False, "error": "architect_learn failed: {}".format(str(exc)[:200])})
+
+    if not result.get("ok"):
+        result["warnings"] = [redact_message(str(w)) for w in (result.get("warnings") or [])][:10]
+        result["error"] = redact_message(str(result.get("error", "")))
+        return json.dumps(result, ensure_ascii=False)
+
+    digest = result.pop("digest", None)
+    if digest is None:
+        return json.dumps({"ok": False, "error": "learn returned ok without a manifest"})
+    slug = digest_mod.slugify(result.get("slug") or api_name or digest.api_name)
+    d = _manifests_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    payload = json.loads(digest.to_json(state="draft"))
+    payload = strip_secret_values(payload)  # belt & braces: no secret VALUES ever hit disk
+    payload["source_url"] = url
+    tmp = d / "{}.learning.json".format(slug)
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    draft_path = d / "{}.draft.json".format(slug)
+    tmp.replace(draft_path)
+    eps = payload.get("endpoints", [])
+    result.update(
+        {
+            "slug": slug,
+            "state": "draft",
+            "draft_file": str(draft_path),
+            "endpoints_preview": ["{} {}".format(e.get("method"), e.get("path")) for e in eps[:12]],
+            "endpoints_shown": min(12, len(eps)),
+            "endpoints_total": len(eps),
+            "note": "Draft manifest — review with architect_list and activate with architect_commit.",
+        }
+    )
+    result["warnings"] = [redact_message(str(w)) for w in (result.get("warnings") or [])][:10]
+    return json.dumps(result, ensure_ascii=False)
 
 
 def api_call(args: dict, **kwargs) -> str:
-    api_name = str(args.get("api_name") or "").strip()
-    if not api_name:
+    """Schema-checked execution over a COMMITTED manifest. Non-GET endpoints are
+    destructive: they need confirm=true in the SAME session (unattended runs
+    fail clean). Validation happens locally against the manifest."""
+    from executor import ExecutionError, execute, find_endpoint
+    from redactor import redact_message
+
+    slug = digest_mod.slugify(str(args.get("api_name") or ""))
+    if slug in ("", "api"):
         return json.dumps({"ok": False, "error": "Need api_name (see architect_list)."})
-    return json.dumps({"ok": False, "error": _ERR_NOT_IMPL_CALL, "api_name_accepted": True})
+    try:
+        active = _manifests_dir() / "{}.json".format(slug)
+        if not active.exists():
+            if (_manifests_dir() / "{}.draft.json".format(slug)).exists():
+                return json.dumps(
+                    {"ok": False, "error": "'{}' is still a DRAFT — not callable until architect_commit activates it.".format(slug)}
+                )
+            return json.dumps({"ok": False, "error": "No committed API named '{}' — run architect_list to see what is learned.".format(slug)})
+        manifest = digest_mod.Digest.from_json(active.read_text(encoding="utf-8"))
+        if not manifest.valid():
+            return json.dumps({"ok": False, "error": "The manifest for '{}' is invalid — relearn the API.".format(slug)})
+        wanted = str(args.get("endpoint") or "")
+        ep = find_endpoint(manifest, wanted)
+        if ep is None:
+            ids = [e.method + " " + e.path for e in manifest.endpoints[:15]]
+            return json.dumps(
+                {"ok": False, "error": "Endpoint '{}' not in the manifest for '{}'.".format(redact_message(wanted), slug), "available": ids}
+            )
+        if ep.method != "GET" and not bool(_config("auto_approve_non_get", False)) and not bool(args.get("confirm")):
+            return json.dumps(
+                {
+                    "ok": False,
+                    "needs_confirmation": True,
+                    "destructive": True,
+                    "method": ep.method,
+                    "endpoint": ep.method + " " + ep.path,
+                    "error": "Destructive endpoint ({}): nothing was sent. Confirm by repeating api_call with confirm: true in this interactive session.".format(ep.method),
+                }
+            )
+        values = args.get("params") or {}
+        body = args.get("raw_query_body")
+        try:
+            result = execute(
+                manifest,
+                ep,
+                values,
+                body,
+                timeout_s=int(_config("request_timeout_s", 15) or 15),
+                user_agent=str(_config("user_agent", "") or ""),
+                allow_private=bool(_config("allow_private_hosts", False)),
+            )
+        except ExecutionError as exc:
+            return json.dumps({"ok": False, "error": redact_message(str(exc))}, ensure_ascii=False)
+        result["endpoint_id"] = ep.id
+        return json.dumps(result, ensure_ascii=False)
+    except Exception as exc:
+        return json.dumps({"ok": False, "error": "api_call failed: {}".format(redact_message(str(exc)[:200]))})

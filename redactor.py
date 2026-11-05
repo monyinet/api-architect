@@ -158,6 +158,34 @@ def redact(text, values=()) -> str:
     return Redactor(list(values or ())).redact(text)
 
 
+def secret_values_in_url(url) -> list:
+    """The raw values a structurally safe pass (redact_url) would redact:
+    userinfo credential material before the last '@', plus the decoded values of
+    query/fragment pairs whose NAME is suspect. For the exact-value pass:
+    whoever writes a manifest built from this URL can hand these to
+    strip_secret_values(values=...) so pass (a) is not a no-op (finding F1)."""
+    url = "" if url is None else str(url)
+    vals = []
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return vals
+    netloc = parts.netloc or ""
+    at = netloc.rfind("@")
+    if at > 0 and netloc[:at]:
+        raw = unquote(netloc[:at])
+        if raw:
+            vals.append(raw)
+            user_part, passwd_sep, passwd_part = raw.partition(":")
+            if passwd_sep and passwd_part:
+                vals.append(passwd_part)
+    for raw_pair in ((parts.query or "") + "&" + (parts.fragment or "")).split("&"):
+        name, sep, value = raw_pair.partition("=")
+        if sep and value and _is_suspect_param(name):
+            vals.append(unquote(value))
+    return vals
+
+
 def redact_url(url) -> str:
     """Structurally-safe redaction of a single URL.
 

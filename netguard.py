@@ -311,7 +311,7 @@ def _guarded_request(p, ips, method: str, headers: dict, body, timeout_s: int,
         # overshoot probe keeps the check honest regardless of Content-Length.
         payload = resp.read(max_bytes + 1)
         if len(payload) > max_bytes:
-            raise GuardError("respuesta sobre el cap de bytes (max_bytes)")
+            raise GuardError("response exceeded the byte cap (max_bytes)")
         status = resp.status
         kept = {}
         for name in _HEADERS_KEPT:

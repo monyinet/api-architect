@@ -139,7 +139,12 @@ def architect_commit(args: dict, **kwargs) -> str:
         }
         payload["engine_version"] = parsed.engine_version
         tmp = d / "{}.committing.json".format(slug)
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        # same two-pass hygiene as the draft write: what lands on disk must be
+        # scrubbed even if the draft predates a later redactor rule (finding F2)
+        tmp.write_text(
+            redact_message(json.dumps(payload, ensure_ascii=False, indent=2)),
+            encoding="utf-8",
+        )
         tmp.replace(active)  # atomic on the same volume
         try:
             draft.unlink()
@@ -179,6 +184,10 @@ def architect_learn(args: dict, **kwargs) -> str:
         result_note = "source_url stored redacted (credential-shaped query parameters)"
     else:
         result_note = ""
+    # pass (a) needs the RAW values the structural pass redacts from this URL
+    # (finding F1): value-equality redaction on the manifest must actually scrub
+    # them, not receive an empty tuple
+    pasted_secret_values = _sib("redactor").secret_values_in_url(url)
     try:
         learn_mod = _sib("learn")
 
@@ -205,7 +214,7 @@ def architect_learn(args: dict, **kwargs) -> str:
     d = _manifests_dir()
     d.mkdir(parents=True, exist_ok=True)
     payload = json.loads(digest.to_json(state="draft"))
-    payload = strip_secret_values(payload)  # value-equality pass (belt)
+    payload = strip_secret_values(payload, pasted_secret_values)  # value-equality pass (real values, F1)
     # structural pass (red-lens D): any credential-shaped query param in ANY url
     # field of the manifest — source_url, detection.spec_url, provenance, warnings —
     # loses its value before the bytes touch disk

@@ -351,7 +351,7 @@ class TestGuardedFetchBasics(_LocalFetchCase):
         # server sends 1 MB; cap 10k → read probes max_bytes+1 and refuses
         with self.assertRaises(GuardError) as ctx:
             guarded_fetch(self.base + "/big", max_bytes=10_000, allow_private=True, timeout_s=5)
-        self.assertIn("cap de bytes", str(ctx.exception))
+        self.assertIn("byte cap", str(ctx.exception))
 
     def test_byte_cap_below_limit_passes(self):
         res = guarded_fetch(self.base + "/big", max_bytes=_ONE_MB, allow_private=True, timeout_s=10)

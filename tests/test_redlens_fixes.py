@@ -403,5 +403,69 @@ class TestOperationIdAddressing(unittest.TestCase):
         self.assertIsNotNone(executor_mod.find_endpoint(digest, first))
 
 
+class TestSecretValuesInUrl(unittest.TestCase):  # F1: pass (a) gets REAL values, not ()
+    def test_suspect_query_and_userinfo_values_collected(self):
+        import redactor as redactor_mod
+
+        url = "https://editor:ABCD-EFGH@api.example.com/openapi.json?appid=SECRET123456789&x=1"
+        vals = redactor_mod.secret_values_in_url(url)
+        self.assertIn("SECRET123456789", vals)
+        self.assertIn("ABCD-EFGH", vals)
+
+    def test_clean_url_yields_nothing(self):
+        import redactor as redactor_mod
+
+        self.assertEqual(redactor_mod.secret_values_in_url("https://api.example.com/openapi.json?x=1"), [])
+
+    def test_value_pass_actually_scrubs_with_them(self):
+        import redactor as redactor_mod
+        import secrets_bridge as sb_mod
+
+        payload = {"api_name": "k", "notes": ["SECRET123456789"]}
+        scrubbed = sb_mod.strip_secret_values(payload, redactor_mod.secret_values_in_url(
+            "https://api.example.com/openapi.json?appid=SECRET123456789"))
+        self.assertEqual(scrubbed["notes"], ["[REDACTED]"])
+
+
+@unittest.skipUnless(_HERMES_OK, "handler tests need Hermes core importable")
+class TestConfirmStringFalseNeverSends(unittest.TestCase):  # F3: gate on the REAL handler paths
+    def _learn_and_commit(self, tools):
+        import learn as learn_mod  # tools.py _sib resolves flat-first → same object
+
+        canned = {
+            "status": 200,
+            "headers": {"content-type": "application/json"},
+            "body": _PETSTORE.encode("utf-8"),
+            "url": "https://petstore3.example.com/api/v3/openapi.json",
+        }
+        with mock.patch.object(learn_mod, "guarded_fetch", return_value=canned):
+            r = json.loads(tools.architect_learn({"url": canned["url"], "api_name": "petstore-conf"}))
+        self.assertTrue(r.get("ok"), r)
+        c = json.loads(tools.architect_commit({"api_name": "petstore-conf"}))
+        self.assertTrue(c.get("ok"), c)
+
+    def test_string_false_confirms_never_execute_post(self):
+        import tempfile
+
+        for candidate in ("false", "0", "no", "", "False"):
+            home = tempfile.mkdtemp(prefix="architect-conf-home-")
+            self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+            os.environ["HERMES_HOME"] = home
+            tools = redlens_types_like_load()["tools"]
+            self._learn_and_commit(tools)
+            r = json.loads(
+                tools.api_call(
+                    {
+                        "api_name": "petstore-conf",
+                        "endpoint": "addPet",
+                        "params": {"body": {"name": "DemoPet", "photoUrls": []}},
+                        "confirm": candidate,
+                    }
+                )
+            )
+            self.assertTrue(r.get("needs_confirmation"), r)
+            self.assertNotIn("status", r)  # nothing was sent to the network
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -53,6 +53,12 @@ _DENIED_NETS = tuple(
         "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16",
         "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
         "::/128", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8", "64:ff9b:1::/48", "100::/64",
+        # IPv4 smuggled inside IPv6 (red-lens finding A, 2026-11-05): whole-prefix
+        # denial is conservative — real-world APIs never live in these ranges.
+        "::ffff:0:0/96",  # IPv4-mapped (::ffff:127.0.0.1, ::ffff:169.254.169.254)
+        "64:ff9b::/96",   # NAT64 translation (embeds an IPv4 in the low 32 bits)
+        "2002::/16",      # 6to4 (embeds an IPv4 address)
+        "2001:0::/32",    # Teredo
     )
 )
 
@@ -93,6 +99,20 @@ def check_url(url: str, allow_private: bool = False):
     if p.username or p.password:
         raise GuardError("URLs with embedded credentials are refused.")
     host = p.hostname
+    try:
+        _ = p.port  # raises ValueError for out-of-range ports — validate EARLY (red-lens N)
+    except ValueError:
+        raise GuardError("URL port is out of range or malformed.")
+    # Numeric IPv4 hostnames (decimal/hex; some system resolvers accept inet_aton
+    # forms) resolve to their address and pass the deny-list BEFORE any DNS
+    # lookup, so the integer form of a private address cannot sneak through.
+    if host and "." not in host and re.match(r"^(?:0[xX][0-9a-fA-F]+|[0-9]{5,})$", host):
+        try:
+            as_ip = ipaddress.ip_address(int(host, 0))
+        except (ValueError, OverflowError):
+            as_ip = None
+        if as_ip is not None and not allow_private and ip_is_denied(str(as_ip), allow_private=False):
+            raise GuardError("Numeric-form host of a private/reserved address; blocked by default.")
     # hostname-level blocks (resolution would fail later, but fail EARLY with a clear line)
     low = host.lower()
     if low.endswith(".localhost") or low == "localhost" or low.endswith(".internal") or low.endswith(".home.arpa"):

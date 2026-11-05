@@ -21,6 +21,17 @@ from secrets_bridge import resolve_secret
 _METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 _PLACEHOLDER_RE = re.compile(r"\{([^/{}]+)\}")
 
+# Transport-controlled headers (red-lens finding J): a manifest-declared header
+# param (or auth location) with these names enables request-smuggling/spoofing;
+# where legitimate, the interpreter sets them itself (Content-Type, Host, etc.).
+_FORBIDDEN_HEADER_KEYS = frozenset(
+    {
+        "contentlength", "contenttype", "transferencoding", "te", "connection",
+        "host", "acceptencoding", "xforwardedfor", "xforwardedhost",
+        "xforwardedproto", "xforwardedport", "expect",
+    }
+)
+
 
 class ExecutionError(Exception):
     """User-facing failure; message is already redacted and actionable."""
@@ -39,7 +50,10 @@ def find_endpoint(manifest: Digest, endpoint: str) -> Optional[Endpoint]:
         for e in manifest.endpoints:
             if e.method.lower() == parts[0] and e.path.lower().rstrip("/") == parts[1].rstrip("/"):
                 return e
-    hits = [e for e in manifest.endpoints if e.path.lower() in want or want.endswith(e.path.lower().rstrip("/"))]
+    # EXACT path match only (red-lens finding G: the old fuzzy 'in/endswith' made
+    # every bare input hit path "/" — confused deputy). A bare path must equal a
+    # manifest path exactly; otherwise the caller offers the endpoint list.
+    hits = [e for e in manifest.endpoints if e.path.lower().rstrip("/") == want.rstrip("/")]
     if len(hits) == 1:
         return hits[0]
     return None
@@ -104,7 +118,10 @@ def build_request(manifest: Digest, endpoint: Endpoint, values: dict, body: Opti
         elif p.location == "query":
             query.append((p.name, str(v)))
         elif p.location == "header":
-            headers[p.name] = str(v)
+            if p.name.lower().replace("-", "").replace("_", "") in _FORBIDDEN_HEADER_KEYS:
+                problems.append("'{}': transport-controlled header is not allowed from the manifest".format(p.name))
+            else:
+                headers[p.name] = str(v)
         else:  # cookie
             problems.append("'{}': cookie params are not supported at v0".format(p.name))
 
@@ -188,6 +205,11 @@ def execute(
         if manifest.auth.type == "bearer":
             headers["Authorization"] = "Bearer " + secret
         elif manifest.auth.type == "api_key_header":
+            if manifest.auth.location.lower().replace("-", "").replace("_", "") in _FORBIDDEN_HEADER_KEYS:
+                raise ExecutionError(
+                    "Manifest defect: auth location '{}' is a transport-controlled header — "
+                    "recommit with a real credential header name.".format(manifest.auth.location)
+                )
             headers[manifest.auth.location] = secret
         elif manifest.auth.type == "api_key_query":
             sep = "&" if "?" in req["url"] else "?"

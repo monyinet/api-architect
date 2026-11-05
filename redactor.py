@@ -59,15 +59,16 @@ must be safe to import anywhere (catalog rules 10/11).
 from __future__ import annotations
 
 import re
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, quote_plus, urlsplit, urlunsplit
 
 REDACTED = "[REDACTED]"
 
 # (compiled pattern, replacement template) applied in order. Replacements are
 # literal templates (no backrefs), so '[REDACTED]' cannot be mangled.
 _DEFAULT_PATTERNS = (
-    (re.compile(r"(?i)authorization\s*[:=]\s*bearer\s+\S+"), "authorization: [REDACTED]"),
-    (re.compile(r"(?i)x-api-key\s*[:=]\s*\S+"), "x-api-key: [REDACTED]"),
+    (re.compile(r"(?i)authorization\s*[:=]\s*bearer\s+\S+"), "authorization: " + REDACTED),
+    (re.compile(r"(?i)authorization\s*[:=]\s*basic\s+\S+"), "authorization: " + REDACTED),  # red-lens E
+    (re.compile(r"(?i)x-api-key\s*[:=]\s*\S+"), "x-api-key: " + REDACTED),
     (re.compile(r"(?<=[?&]appid=)[A-Za-z0-9_~.-]{16,}"), REDACTED),
     # The contract's 'api_?key' / 'access_?token' optional-char lookbehinds do
     # NOT compile in CPython re (fixed-width lookbehind requirement, verified
@@ -132,14 +133,21 @@ class Redactor:
                 _add(re.escape(enc))
                 if enc.lower() != enc:
                     _add(re.escape(enc.lower()))
+            encp = quote_plus(s, safe="")  # red-lens E/F: 'space->+' rewrite form
+            if encp != s and encp != enc and ("%" in encp or "+" in encp):
+                _add(re.escape(encp))
         # Longest first: a value that contains another wins without overlap leaks.
         pats.sort(key=len, reverse=True)
         self._value_re = re.compile("|".join(pats)) if pats else None
+        long = [p for p in pats if len(p) >= 12]
+        self._value_re_ci = re.compile("|".join(long), re.IGNORECASE) if long else None
 
     def redact(self, text) -> str:
         text = "" if text is None else str(text)
         if self._value_re is not None:
             text = self._value_re.sub(REDACTED, text)
+        if self._value_re_ci is not None:  # red-lens F: case-normalizing servers
+            text = self._value_re_ci.sub(REDACTED, text)
         for pattern, repl in _DEFAULT_PATTERNS:
             text = pattern.sub(repl, text)
         return text

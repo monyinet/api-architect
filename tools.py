@@ -35,6 +35,19 @@ def _manifests_dir() -> Path:
     return plugin_data_dir(PLUGIN_ID) / "manifests"
 
 
+def _truthy(v) -> bool:
+    """Strict boolean semantics (red-lens C): config values saved as strings and
+    model arguments MUST NOT go through bool() truthiness — 'false'/"0"/"no"/""
+    are False even though they are non-empty."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return v == 1
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "1", "y")
+    return False
+
+
 def architect_list(args: dict, **kwargs) -> str:
     """List learned APIs: slug, state, endpoint count, warnings."""
     try:
@@ -43,6 +56,8 @@ def architect_list(args: dict, **kwargs) -> str:
             return json.dumps({"ok": True, "apis": []})
         apis = []
         for p in sorted(d.glob("*.json")):
+            if p.stem.endswith((".committing", ".learning")):  # red-lens K: intermediates are not APIs
+                continue
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
                 apis.append(
@@ -139,6 +154,12 @@ def architect_learn(args: dict, **kwargs) -> str:
     api_name = str(args.get("api_name") or "").strip()
     if not url.lower().startswith(("http://", "https://")):
         return json.dumps({"ok": False, "error": "Need a http(s) spec or docs URL."})
+    from redactor import redact_url
+    clean_url = redact_url(url)  # red-lens D: a credential IN the pasted URL never reaches disk
+    if clean_url != url:
+        result_note = "source_url stored redacted (credential-shaped query parameters)"
+    else:
+        result_note = ""
     try:
         from learn import learn
 
@@ -147,7 +168,7 @@ def architect_learn(args: dict, **kwargs) -> str:
             api_name,
             timeout_s=int(_config("request_timeout_s", 15) or 15),
             user_agent=str(_config("user_agent", "") or ""),
-            allow_private=bool(_config("allow_private_hosts", False)),
+            allow_private=_truthy(_config("allow_private_hosts", False)),
             llm=_llm(),
         )
     except Exception as exc:
@@ -165,8 +186,14 @@ def architect_learn(args: dict, **kwargs) -> str:
     d = _manifests_dir()
     d.mkdir(parents=True, exist_ok=True)
     payload = json.loads(digest.to_json(state="draft"))
-    payload = strip_secret_values(payload)  # belt & braces: no secret VALUES ever hit disk
-    payload["source_url"] = url
+    payload = strip_secret_values(payload)  # value-equality pass (belt)
+    # structural pass (red-lens D): any credential-shaped query param in ANY url
+    # field of the manifest — source_url, detection.spec_url, provenance, warnings —
+    # loses its value before the bytes touch disk
+    payload = json.loads(redact_message(json.dumps(payload, ensure_ascii=False)))
+    payload["source_url"] = clean_url
+    if result_note:
+        payload["warnings"] = payload.get("warnings", []) + [result_note]
     tmp = d / "{}.learning.json".format(slug)
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     draft_path = d / "{}.draft.json".format(slug)
@@ -184,7 +211,8 @@ def architect_learn(args: dict, **kwargs) -> str:
         }
     )
     result["warnings"] = [redact_message(str(w)) for w in (result.get("warnings") or [])][:10]
-    return json.dumps(result, ensure_ascii=False)
+    # final structural pass on EVERYTHING the handler returns (red-lens D)
+    return redact_message(json.dumps(result, ensure_ascii=False))
 
 
 def api_call(args: dict, **kwargs) -> str:
@@ -215,7 +243,7 @@ def api_call(args: dict, **kwargs) -> str:
             return json.dumps(
                 {"ok": False, "error": "Endpoint '{}' not in the manifest for '{}'.".format(redact_message(wanted), slug), "available": ids}
             )
-        if ep.method != "GET" and not bool(_config("auto_approve_non_get", False)) and not bool(args.get("confirm")):
+        if ep.method != "GET" and not _truthy(_config("auto_approve_non_get", False)) and not _truthy(args.get("confirm")):
             return json.dumps(
                 {
                     "ok": False,
@@ -236,7 +264,7 @@ def api_call(args: dict, **kwargs) -> str:
                 body,
                 timeout_s=int(_config("request_timeout_s", 15) or 15),
                 user_agent=str(_config("user_agent", "") or ""),
-                allow_private=bool(_config("allow_private_hosts", False)),
+                allow_private=_truthy(_config("allow_private_hosts", False)),
             )
         except ExecutionError as exc:
             return json.dumps({"ok": False, "error": redact_message(str(exc))}, ensure_ascii=False)

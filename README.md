@@ -54,7 +54,9 @@ planning vault (not published here).
 ## Test scope (honest)
 
 - `python -m unittest discover tests` — **208 module tests** (digest, parsers,
-  netguard, redactor, secrets_bridge): pure stdlib, no network except loopback
+  netguard, redactor, secrets_bridge) **+ the red-lens regression suite**
+  (`tests/test_redlens_fixes.py`, from an external adversarial audit of this
+  code) + the handler-stack tests: pure stdlib, no network except loopback
   servers inside netguard's own tests.
 - `tests/test_handlers.py` runs the FULL handler stack (learn → draft refusal →
   commit → list → api_call) with a mocked network adapter, and **skips cleanly
@@ -62,6 +64,25 @@ planning vault (not published here).
   sit on `plugin_data_dir`/`ctx`, which exist only inside a Hermes host.
 - Covered so far on Python 3.12 (Ubuntu) and 3.14 (Windows + Android/Termux).
   The 3.11 floor (core's minimum) is untested at this time — declared.
+
+## v0 security limits (stated, not hidden)
+
+- **DNS rebinding, pre-pin:** the guard resolves ONCE, validates the addresses,
+  and pins the connection to the validated IP (SNI/Host keep the hostname). A
+  resolver POISONED *before* `guarded_fetch` is called can still hand us an
+  attacker-controlled but public-looking IP — out of scope at v0.
+- **TLS:** system trust store, standard certificate + hostname verification; no
+  client certs, no public-key pinning, no TLS fingerprint handling.
+- **Proxies:** none — direct socket connection only.
+- **Compression:** never negotiated (`Accept-Encoding: identity` forced); the
+  byte cap counts ordinary network bytes; a server that gzip-stamps anyway gets
+  its data read opaquely (we do not decompress).
+- **Confirm semantics:** destructive (non-GET) calls need an explicit
+  `confirm: true` from the calling session. The confirm cannot be issued by
+  spec/doc content, but the calling model itself still decides — the tool call
+  stays visible in the session's tool trail.
+- **Numeric/IPv6-smuggled private addresses** (decimal/hex hosts, `::ffff:…`,
+  NAT64/6to4/Teredo) ARE denied by the guard (tested).
 
 ## License
 

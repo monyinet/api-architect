@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 from typing import Optional
 
 from digest import Digest, slugify
@@ -145,7 +146,9 @@ def learn(
                 warnings.append(w)
             if digest is not None:
                 return ("spec", digest, url, mode)
-            return html_or_fail(obj, url)
+            tried.append(url + " -> json but no spec detected")  # red-lens I: keep probing
+            warnings.append("candidate is valid JSON but not a recognized spec (openapi3/swagger2/postman)")
+            return None
         if head[:1] == b"<":
             links = discover_links(body.decode("utf-8", errors="replace"), url)
             if links:

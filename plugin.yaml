@@ -1,0 +1,46 @@
+# api-architect — plugin manifest (v2)
+# Compile API specs into first-class Hermes tools.
+name: api-architect
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+description: "Compile API specs (OpenAPI/Swagger/Postman) into schema-checked Hermes tools: learns endpoints at runtime into validated, persistent manifests and executes calls through one audited network guard with host-scoped credentials. Cuts HTML deep-scraping by design: no spec, no invented endpoints."
+author: "Jose Juan Monino Coll (monyinet)"
+license: MIT
+homepage: https://github.com/monyinet/api-architect
+tags: [tools, api, openapi, http]
+requires_hermes: ">=0.22.0"
+provides_tools:
+  - architect_learn
+  - architect_commit
+  - architect_list
+  - api_call
+# No hooks, no capabilities, no python deps (stdlib-only, catalog rule 10).
+# Credentials: NEVER requires_env (simple format disables the plugin when missing);
+# keys ride config_schema `secret` slots resolved via agent.secret_scope (catalog rule 11).
+requires_env: []
+config_schema:
+  request_timeout_s:
+    type: int
+    default: 15
+    description: "Per-request network timeout in seconds (learn and call)."
+  max_endpoints:
+    type: int
+    default: 40
+    description: "Maximum endpoints compiled into one manifest."
+  user_agent:
+    type: str
+    default: "api-architect/0.1 (+Hermes plugin)"
+    description: "User-Agent sent to spec hosts and learned API hosts."
+  allow_private_hosts:
+    type: bool
+    default: false
+    description: "DANGEROUS opt-in: allow HTTP to loopback/RFC1918/link-local hosts (e.g. your own LAN API). Keep off unless you understand the SSRF risk."
+  api_key_1:
+    type: secret
+    env: API_ARCHITECT_API_KEY_1
+    description: "Credential slot 1. architect_commit binds a learned API's auth to this slot; the value never enters model context."
+  api_key_2:
+    type: secret
+    env: API_ARCHITECT_API_KEY_2
+    description: "Credential slot 2. Same binding mechanism as slot 1."

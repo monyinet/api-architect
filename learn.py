@@ -229,7 +229,11 @@ def learn(
             warnings.append("llm polish skipped ({}); manifest unaffected".format(str(exc)[:80]))
 
     if digest:
-        digest.warnings = digest.warnings + warnings[-20:]
+        # Parser warnings reach here twice: the digest already carries its own, and
+        # _detect_and_parse's `warn` list (the same strings, needed on the failure paths) was folded
+        # into the pipeline list at collection time. Merge without duplicates so a real manifest
+        # never repeats every parser warning verbatim.
+        digest.warnings = list(dict.fromkeys(digest.warnings + warnings[-20:]))
         digest.detection["spec_url"] = spec_url
         return {
             "ok": True,

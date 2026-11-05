@@ -115,6 +115,28 @@ class TestHandlerStack(unittest.TestCase):
             self.assertFalse(r7.get("ok"))
             self.assertIn("available", r7)
 
+    def test_learned_manifest_warnings_are_not_duplicated(self):
+        """Parser warnings used to reach the file twice (digest.warnings + the pipeline list)."""
+        canned_learn = {
+            "status": 200,
+            "headers": {"content-type": "application/json"},
+            "body": _FIXTURE.encode("utf-8"),
+            "url": "https://petstore3.swagger.io/api/v3/openapi.json",
+        }
+        with mock.patch.object(real_learn_mod, "guarded_fetch", return_value=canned_learn):
+            r = json.loads(
+                self.tools.architect_learn(
+                    {"url": "https://petstore3.swagger.io/api/v3/openapi.json", "api_name": "warncheck"}
+                )
+            )
+        self.assertTrue(r.get("ok"), r)
+        draft = json.loads(
+            (self.tools._manifests_dir() / "warncheck.draft.json").read_text(encoding="utf-8")
+        )
+        stored = draft.get("warnings") or []
+        self.assertTrue(stored, "a learned OpenAPI 3 manifest should carry the parser's warnings")
+        self.assertEqual(len(stored), len(set(stored)), "duplicate warnings in the manifest: {}".format(stored))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -238,6 +238,17 @@ def architect_learn(args: dict, **kwargs) -> str:
             "note": "Draft manifest — review with architect_list and activate with architect_commit.",
         }
     )
+    active_path = d / "{}.json".format(slug)
+    if active_path.exists():
+        # the caller learns nothing about a committed twin unless the response
+        # says so — say it in-line instead of leaving the model to improvise
+        # an apology after architect_list (live dogfood finding, 2026-11-06)
+        result["active_exists"] = True
+        result["note"] = (
+            "An ACTIVE manifest for '{}' already exists. Re-learning is the UPDATE path: "
+            "this draft changes nothing until architect_commit reviews and replaces it — "
+            "call the API directly if you just wanted to use it.".format(slug)
+        )
     result["warnings"] = [redact_message(str(w)) for w in (result.get("warnings") or [])][:10]
     # final structural pass on EVERYTHING the handler returns (red-lens D)
     return redact_message(json.dumps(result, ensure_ascii=False))
@@ -276,7 +287,7 @@ def api_call(args: dict, **kwargs) -> str:
             return json.dumps(
                 {"ok": False, "error": "Endpoint '{}' not in the manifest for '{}'.".format(redact_message(wanted), slug), "available": ids}
             )
-        if ep.method != "GET" and not _truthy(_config("auto_approve_non_get", False)) and not _truthy(args.get("confirm")):
+        if ep.method != "GET" and not _truthy(args.get("confirm")):
             return json.dumps(
                 {
                     "ok": False,

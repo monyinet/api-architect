@@ -27,8 +27,11 @@ gate: **drafts are NOT callable** — a human-visible review happens at commit.
 
 ## Rules the agent MUST follow
 
-- Never re-learn an API that `architect_list` already shows as active —
-  manifests persist between sessions; call it directly.
+- Call `architect_list` before learning: manifests persist between sessions and
+  the API may already be committed — then call it directly with `api_call`.
+  Re-learning an active API is the UPDATE path (learn → draft → review →
+  `architect_commit` replaces it); the learn response flags it in-line when an
+  active manifest already exists.
 - Non-GET endpoints are destructive: they require interactive approval and
   never fire under unattended runs.
 - Never paste API keys into the chat or into `params` — bind them via

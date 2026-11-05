@@ -427,6 +427,39 @@ class TestSecretValuesInUrl(unittest.TestCase):  # F1: pass (a) gets REAL values
         self.assertEqual(scrubbed["notes"], ["[REDACTED]"])
 
 
+    @unittest.skipUnless(_HERMES_OK, "handler tests need Hermes core importable")
+    def test_relearn_over_active_flags_it_in_line(self):
+        import tempfile
+
+        home = tempfile.mkdtemp(prefix="architect-relearn-home-")
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        os.environ["HERMES_HOME"] = home
+        tools = redlens_types_like_load()["tools"]
+        import learn as learn_mod
+
+        canned = {
+            "status": 200,
+            "headers": {"content-type": "application/json"},
+            "body": _PETSTORE.encode("utf-8"),
+            "url": "https://petstore3.example.com/api/v3/openapi.json",
+        }
+        with mock.patch.object(learn_mod, "guarded_fetch", return_value=canned):
+            first = json.loads(tools.architect_learn({"url": canned["url"], "api_name": "relearn"}))
+            self.assertFalse(first.get("active_exists"))
+            commit = json.loads(tools.architect_commit({"api_name": "relearn"}))
+            self.assertTrue(commit.get("ok"), commit)
+            draft_stem = first["draft_file"][: -len(".draft.json")]
+            active_before = json.loads(__import__("pathlib").Path(draft_stem + ".json").read_text(encoding="utf-8"))
+            second = json.loads(tools.architect_learn({"url": canned["url"], "api_name": "relearn"}))
+        self.assertTrue(second.get("active_exists"))
+        self.assertIn("UPDATE path", second.get("note", ""))
+        self.assertEqual(second.get("state"), "draft")
+        # nothing changed on disk: the active manifest is untouched until commit
+        active_after = json.loads(__import__("pathlib").Path(draft_stem + ".json").read_text(encoding="utf-8"))
+        self.assertEqual(active_before["endpoints"], active_after["endpoints"])
+        self.assertEqual(active_after.get("state"), "active")
+
+
 @unittest.skipUnless(_HERMES_OK, "handler tests need Hermes core importable")
 class TestConfirmStringFalseNeverSends(unittest.TestCase):  # F3: gate on the REAL handler paths
     def _learn_and_commit(self, tools):

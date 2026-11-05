@@ -1,0 +1,65 @@
+{
+  "info": {
+    "name": "Architect Test Collection",
+    "_postman_id": "b0f1e2d3-0000-4a2b-9c1d-000000000001",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Greeting",
+      "request": {
+        "method": "GET",
+        "url": {
+          "host": ["echo", "example", "org"],
+          "path": ["greeting"],
+          "protocol": "https",
+          "query": [
+            {"key": "name", "value": "ada", "description": "Who to greet"}
+          ]
+        },
+        "description": "Returns a greeting; name is optional."
+      }
+    },
+    {
+      "name": "Create Message",
+      "request": {
+        "method": "POST",
+        "url": {
+          "host": ["echo", "example", "org"],
+          "path": ["messages"],
+          "protocol": "https"
+        },
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{token}}", "description": "Bearer token"}
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"text\": \"hello\"}",
+          "options": {"raw": {"language": "json"}}
+        },
+        "description": "Creates a message; requires Authorization header."
+      }
+    },
+    {
+      "name": "Delete Message",
+      "request": {
+        "method": "DELETE",
+        "url": {
+          "host": ["echo", "example", "org"],
+          "path": ["messages", "{{messageId}}"],
+          "protocol": "https",
+          "variable": [
+            {"key": "messageId", "value": "123", "description": "Message id (path)"}
+          ]
+        },
+        "description": "Removes one message by id."
+      }
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {"key": "token", "value": "{{api_token}}", "type": "string"}
+    ]
+  }
+}

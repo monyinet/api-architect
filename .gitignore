@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.pyo
+decisions/
 .pytest_cache/
 *.egg-info/
 dist/

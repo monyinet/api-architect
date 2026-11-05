@@ -48,8 +48,8 @@ Status: **work-in-progress for the Hermes Agent Plugin Hackathon (submission due
 
 Run tests: `python -m unittest discover tests` (stdlib).
 
-Day-by-day plan and the Red/Blue decision behind this design:
-`decisions/red-blue-plugin-pivot.md` (private planning docs; the plugin itself is this repo).
+Day-by-day build plan and the Red/Blue decision behind this design live in a private
+planning vault (not published here).
 
 ## License
 

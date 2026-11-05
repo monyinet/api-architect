@@ -53,7 +53,7 @@ planning vault (not published here).
 
 ## Test scope (honest)
 
-- `python -m unittest discover tests` — **234 tests**: 208 module tests (digest, parsers,
+- `python -m unittest discover tests` — **246 tests**: 208 module tests (digest, parsers,
   netguard, redactor, secrets_bridge) **+ the red-lens regression suite**
   (`tests/test_redlens_fixes.py`, from an external adversarial audit of this
   code) + the handler-stack tests: pure stdlib, no network except loopback

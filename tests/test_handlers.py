@@ -2,9 +2,12 @@
 skipped cleanly on bare machines (peers/CI) by design: the four tool handlers
 live on top of plugin_data_dir and ctx, which exist only inside a Hermes host.
 
-No network: BOTH mocks patch the REAL top-level `learn` and `executor` modules,
-because tools lazy-imports them BY NAME ("from learn import learn") at call
-time — patching a synthetic package copy is a no-op (lesson of 5-nov). A fresh
+No network: the loader below materialises the plugin as a synthetic package the
+way Hermes does (hermes_plugins.<slug>, dir NOT on sys.path), and the mocks
+patch the PACKAGE copies (_sib resolves package-relative first — plugin-owned
+names beat any foreign top-level module, catalog-review regression). Patching a
+flat module a package _sib doesn't return is a no-op: patch the copy the handler
+actually binds (lesson of 5-nov, updated for package-first ownership). A fresh
 tempfile HERMES_HOME per run kills state leaks between runs."""
 import importlib.util
 import json
@@ -22,8 +25,6 @@ sys.path.insert(0, str(REPO))
 
 try:
     import plugins.plugin_storage  # type: ignore[attr-defined]  # noqa: F401
-    import learn as real_learn_mod  # noqa: F401,E402
-    import executor as real_executor_mod  # noqa: F401,E402
 
     _HERMES_OK = True
 except Exception:
@@ -33,6 +34,9 @@ try:
     _FIXTURE = (REPO / "tests" / "fixtures" / "petstore.json").read_text(encoding="utf-8")
 except OSError:
     _FIXTURE = ""
+
+_PKG = "apiarch_pkg"
+_PKG_LAZY = ("learn", "executor", "redactor", "secrets_bridge", "parse_spec", "parse_postman")
 
 
 @unittest.skipUnless(_HERMES_OK, "handlers need Hermes core importable (plugin host)")
@@ -44,21 +48,25 @@ class TestHandlerStack(unittest.TestCase):
     def setUpClass(cls):
         cls.home = tempfile.mkdtemp(prefix="architect-test-home-")
         os.environ["HERMES_HOME"] = str(cls.home)
-        pkg = types.ModuleType("apiarch_pkg")
+        pkg = types.ModuleType(_PKG)
         pkg.__path__ = [str(REPO)]
-        sys.modules["apiarch_pkg"] = pkg
-        for name in ("digest", "tools"):  # only these need the synthetic pkg (relative imports)
-            spec = importlib.util.spec_from_file_location("apiarch_pkg." + name, REPO / (name + ".py"))
+        sys.modules[_PKG] = pkg
+        for name in ("digest",) + _PKG_LAZY + ("parse_swagger2", "tools"):
+            if _PKG + "." + name in sys.modules:
+                continue
+            spec = importlib.util.spec_from_file_location(_PKG + "." + name, REPO / (name + ".py"))
             mod = importlib.util.module_from_spec(spec)
-            sys.modules["apiarch_pkg." + name] = mod
+            sys.modules[_PKG + "." + name] = mod
             spec.loader.exec_module(mod)
-        cls.tools = sys.modules["apiarch_pkg.tools"]
+        cls.tools = sys.modules[_PKG + ".tools"]
+        cls.pkg_learn = sys.modules[_PKG + ".learn"]
+        cls.pkg_executor = sys.modules[_PKG + ".executor"]
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.home, ignore_errors=True)
         for name in list(sys.modules):
-            if name.startswith("apiarch_pkg."):
+            if name.startswith(_PKG + "."):
                 sys.modules.pop(name, None)
 
     def test_learn_persists_draft_not_callable_then_commit_then_call(self):
@@ -75,8 +83,8 @@ class TestHandlerStack(unittest.TestCase):
             "url": "https://petstore3.swagger.io/api/v3/pet/findByStatus?status=available",
         }
         with mock.patch.object(
-            real_learn_mod, "guarded_fetch", return_value=canned_learn
-        ), mock.patch.object(real_executor_mod, "guarded_fetch", return_value=canned_call):
+            type(self).pkg_learn, "guarded_fetch", return_value=canned_learn
+        ), mock.patch.object(type(self).pkg_executor, "guarded_fetch", return_value=canned_call):
             r = json.loads(
                 self.tools.architect_learn(
                     {"url": "https://petstore3.swagger.io/api/v3/openapi.json", "api_name": "petstore"}
@@ -123,7 +131,7 @@ class TestHandlerStack(unittest.TestCase):
             "body": _FIXTURE.encode("utf-8"),
             "url": "https://petstore3.swagger.io/api/v3/openapi.json",
         }
-        with mock.patch.object(real_learn_mod, "guarded_fetch", return_value=canned_learn):
+        with mock.patch.object(type(self).pkg_learn, "guarded_fetch", return_value=canned_learn):
             r = json.loads(
                 self.tools.architect_learn(
                     {"url": "https://petstore3.swagger.io/api/v3/openapi.json", "api_name": "warncheck"}

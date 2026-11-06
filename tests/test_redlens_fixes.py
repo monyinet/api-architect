@@ -130,8 +130,9 @@ class TestSecretNeverOnDisk(unittest.TestCase):  # red-lens D — THE regression
         home = tempfile.mkdtemp(prefix="architect-seclean-home-")
         self.addCleanup(shutil.rmtree, home, ignore_errors=True)
         os.environ["HERMES_HOME"] = home
-        tools = redlens_types_like_load()["tools"]
-        import learn as learn_mod  # tools binds THIS module on its lazy import
+        mods = redlens_types_like_load()
+        tools = mods["tools"]
+        learn_mod = mods["learn"]  # package copy: the module _sib hands the handler
 
         canned = {
             "status": 200,
@@ -434,16 +435,15 @@ class TestSecretValuesInUrl(unittest.TestCase):  # F1: pass (a) gets REAL values
         home = tempfile.mkdtemp(prefix="architect-relearn-home-")
         self.addCleanup(shutil.rmtree, home, ignore_errors=True)
         os.environ["HERMES_HOME"] = home
-        tools = redlens_types_like_load()["tools"]
-        import learn as learn_mod
-
+        mods = redlens_types_like_load()
+        tools = mods["tools"]
         canned = {
             "status": 200,
             "headers": {"content-type": "application/json"},
             "body": _PETSTORE.encode("utf-8"),
             "url": "https://petstore3.example.com/api/v3/openapi.json",
         }
-        with mock.patch.object(learn_mod, "guarded_fetch", return_value=canned):
+        with mock.patch.object(mods["learn"], "guarded_fetch", return_value=canned):
             first = json.loads(tools.architect_learn({"url": canned["url"], "api_name": "relearn"}))
             self.assertFalse(first.get("active_exists"))
             commit = json.loads(tools.architect_commit({"api_name": "relearn"}))
@@ -469,9 +469,8 @@ class TestSecretValuesInUrl(unittest.TestCase):  # F1: pass (a) gets REAL values
         home = tempfile.mkdtemp(prefix="architect-swagger2-home-")
         self.addCleanup(shutil.rmtree, home, ignore_errors=True)
         os.environ["HERMES_HOME"] = home
-        tools = redlens_types_like_load()["tools"]
-        import learn as learn_mod
-
+        mods = redlens_types_like_load()
+        tools = mods["tools"]
         v2 = (REPO / "tests" / "fixtures" / "petstore_v2.json").read_text(encoding="utf-8")
         canned = {
             "status": 200,
@@ -479,7 +478,7 @@ class TestSecretValuesInUrl(unittest.TestCase):  # F1: pass (a) gets REAL values
             "body": v2.encode("utf-8"),
             "url": "https://petstore2.example.com/v2/swagger.json",
         }
-        with mock.patch.object(learn_mod, "guarded_fetch", return_value=canned):
+        with mock.patch.object(mods["learn"], "guarded_fetch", return_value=canned):
             r = json.loads(tools.architect_learn({"url": canned["url"], "api_name": "petstore2"}))
         self.assertTrue(r.get("ok"), r)
         self.assertEqual(r.get("mode"), "swagger2")
@@ -490,10 +489,48 @@ class TestSecretValuesInUrl(unittest.TestCase):  # F1: pass (a) gets REAL values
         self.assertTrue(d.endpoints)
 
 
+    @unittest.skipUnless(_HERMES_OK, "handler tests need Hermes core importable")
+    def test_foreign_learn_module_cannot_shadow_the_plugins(self):
+        """Maintainer review finding (catalog PR): a dependency that preloads
+        sys.modules["learn"] without a learn() function used to win the flat-first
+        _sib resolution; package-relative first keeps plugin ownership."""
+        import tempfile
+        import types
+
+        home = tempfile.mkdtemp(prefix="architect-foreign-home-")
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        os.environ["HERMES_HOME"] = home
+        foreign = types.ModuleType("learn")  # NO learn() inside — the counterexample
+        setattr(foreign, "bomb", "foreign")
+        sentinel = "learn" in sys.modules and sys.modules["learn"]
+        sys.modules["learn"] = foreign
+        self.addCleanup(self._restore_learn_module, sentinel)
+        mods = redlens_types_like_load()
+        tools = mods["tools"]
+        self.assertIsNot(tools._sib("learn"), foreign)  # the plugin-owned copy wins
+        canned = {
+            "status": 200,
+            "headers": {"content-type": "application/json"},
+            "body": _PETSTORE.encode("utf-8"),
+            "url": "https://petstore3.example.com/api/v3/openapi.json",
+        }
+        with mock.patch.object(mods["learn"], "guarded_fetch", return_value=canned):
+            r = json.loads(tools.architect_learn({"url": canned["url"], "api_name": "foreigncheck"}))
+        self.assertTrue(r.get("ok"), r)
+        self.assertEqual(r.get("endpoints_total"), 19)
+
+    @staticmethod
+    def _restore_learn_module(sentinel):
+        if sentinel is False:
+            sys.modules.pop("learn", None)
+        else:
+            sys.modules["learn"] = sentinel
+
+
 @unittest.skipUnless(_HERMES_OK, "handler tests need Hermes core importable")
 class TestConfirmStringFalseNeverSends(unittest.TestCase):  # F3: gate on the REAL handler paths
-    def _learn_and_commit(self, tools):
-        import learn as learn_mod  # tools.py _sib resolves flat-first → same object
+    def _learn_and_commit(self, mods):
+        tools, learn_mod = mods["tools"], mods["learn"]  # the package copy tools binds
 
         canned = {
             "status": 200,
@@ -514,8 +551,9 @@ class TestConfirmStringFalseNeverSends(unittest.TestCase):  # F3: gate on the RE
             home = tempfile.mkdtemp(prefix="architect-conf-home-")
             self.addCleanup(shutil.rmtree, home, ignore_errors=True)
             os.environ["HERMES_HOME"] = home
-            tools = redlens_types_like_load()["tools"]
-            self._learn_and_commit(tools)
+            mods = redlens_types_like_load()
+            tools = mods["tools"]
+            self._learn_and_commit(mods)
             r = json.loads(
                 tools.api_call(
                     {

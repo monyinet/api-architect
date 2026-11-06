@@ -20,18 +20,23 @@ _ctx = None  # set at register(); gates config (request_timeout_s/allow_private_
 
 
 def _sib(stem):
-    """Import a sibling module in BOTH load modes.
+    """Import a sibling module, plugin-owned FIRST in package mode.
 
-    Flat first: the repo's handler tests put this directory on sys.path and patch the flat
-    modules by name, so rebinding them keeps their mocks honest (tests/test_handlers.py).
-    Package-relative otherwise: Hermes loads a directory plugin as hermes_plugins.<slug> with
-    the plugin directory NOT on sys.path (hermes_cli/plugins_loader.py::_load_directory_module),
-    where a bare sibling import raises ModuleNotFoundError.
+    Package-relative first: Hermes loads a directory plugin as hermes_plugins.<slug>
+    with the plugin directory NOT on sys.path (hermes_cli/plugins_loader.py;
+    maintainer review of this PR, 2026-11-06), and an explicit relative import
+    ignores any foreign top-level module of the same name — plugin ownership of
+    its own modules must not depend on what other code preloaded into
+    sys.modules (catalog-review regression). Flat fallback for the repo's flat
+    import modes; the handler tests' mocks patch the loaded package copy they
+    get from the load helper (same object, so mocks still bind honestly).
     """
-    try:
-        return importlib.import_module(stem)
-    except ImportError:
-        return importlib.import_module("." + stem, __package__)
+    if __package__:
+        try:
+            return importlib.import_module("." + stem, __package__)
+        except ImportError:
+            pass
+    return importlib.import_module(stem)
 
 
 def _config(key: str, default):

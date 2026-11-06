@@ -30,15 +30,17 @@ except ImportError:  # pragma: no cover - test/standalone import path
 
 
 def _parser(stem):
-    """Import a sibling parser module in both load modes (see the import block)."""
+    """Import a sibling parser module, package-relative FIRST (same contract as
+    tools._sib — plugin-owned names must not be shadowed by foreign top-level
+    modules in sys.modules); flat fallback for the repo's own flat import modes."""
     import importlib
 
-    if not __package__:
-        return importlib.import_module(stem)
-    try:
-        return importlib.import_module(stem)
-    except ImportError:
-        return importlib.import_module("." + stem, __package__)
+    if __package__:
+        try:
+            return importlib.import_module("." + stem, __package__)
+        except ImportError:
+            pass
+    return importlib.import_module(stem)
 
 SPEC_SUFFIX_CANDIDATES = (
     "openapi.json",

@@ -1,10 +1,1 @@
-__pycache__/
-*.pyc
-*.pyo
-decisions/
-.pytest_cache/
-*.egg-info/
-dist/
-build/
-.venv/
-node_modules/
+# IDEAS.md is an untracked scratch note (kept out of the reviewed tree on purpose)
